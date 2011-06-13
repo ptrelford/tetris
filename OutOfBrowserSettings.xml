@@ -1,0 +1,7 @@
+﻿<OutOfBrowserSettings ShortName="Tetris Game" EnableGPUAcceleration="True" ShowInstallMenuItem="False">
+ <OutOfBrowserSettings.Blurb>Application on your desktop; at home, at work or on the go.</OutOfBrowserSettings.Blurb>
+ <OutOfBrowserSettings.WindowSettings>
+  <WindowSettings Title="Tetris Game" />
+ </OutOfBrowserSettings.WindowSettings>
+ <OutOfBrowserSettings.Icons />
+</OutOfBrowserSettings>
