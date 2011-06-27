@@ -1,10 +1,10 @@
-﻿(*[omit:Mouse input]*)
+﻿(*[omit:Skip module definition on TryFSharp.org]*)
 #if INTERACTIVE
 #else
 module Game
 #endif
 (*[/omit]*)
-    
+
 open System
 open System.Windows
 open System.Windows.Controls
@@ -12,83 +12,30 @@ open System.Windows.Input
 open System.Windows.Media
 open System.Windows.Shapes
 
-(*[omit:Mouse input]*)
-module MotionTracker =   
-    type point = float * float        
-    type message =
-        | Clear
-        | Add of point
-        | Take of point * AsyncReplyChannel<point>
-        | Exit
-    let start () = MailboxProcessor.Start(fun inbox ->
-        let rec loop delta = async {
-            let! m = inbox.Receive()
-            match m with
-            | Clear -> return! loop (0.0,0.0)
-            | Add (dx,dy) -> 
-                let dx',dy' = delta
-                return! loop (dx+dx',dy+dy')
-            | Take((tx,ty),channel) ->
-                let dx, dy = delta
-                let sx, sy = sign dx |> float, sign dy |> float
-                let x, y = abs dx, abs dy
-                let dx' = if x >= tx then tx else 0.0 
-                let dy' = if y >= ty then ty else 0.0
-                channel.Reply (sx * dx', sy * dy')
-                let x, y = x - dx', y - dy'
-                return! loop (sx * x, sy * y)
-            | Exit -> ()
-        }
-        loop (0.0,0.0)
-        )
-        
-type MouseTracking (item:UIElement) =    
-    let mutable (disposables:IDisposable list) = []
-    let remember d = disposables <- d::disposables
-    let forget () = for d in disposables do d.Dispose()
-    let x = ref 0.0
-    let y = ref 0.0
-    let isDown = ref false
-    let tracker = MotionTracker.start ()    
-    do  item.MouseLeftButtonDown
-        |> Observable.subscribe (fun me ->            
-            isDown := true            
-            let position = me.GetPosition(null)
-            x := position.X
-            y := position.Y
-            let success = item.CaptureMouse()
-            item.Opacity <- 0.5
-        ) |> remember
-        item.MouseLeftButtonUp
-        |> Observable.subscribe (fun me ->
-            isDown := false
-            item.Opacity <- 1.0
-            item.ReleaseMouseCapture()
-            tracker.Post(MotionTracker.Clear)
-        ) |> remember
-        item.MouseMove
-        |> Observable.subscribe (fun me ->
-            if !isDown then
-                let p = me.GetPosition(null)
-                let dx = p.X - !x
-                let dy = p.Y - !y
-                tracker.Post(MotionTracker.Add(dx,dy))   
-                x := p.X; y := p.Y
-        ) |> remember
-    member this.TakeMotion() =
-        tracker.PostAndReply(fun reply -> MotionTracker.Take((8.0,8.0),reply))
-    interface IDisposable with
-        member this.Dispose() = 
-            tracker.Post(MotionTracker.Exit)
-            forget ()
-(*[/omit]*)
-
+(*[omit:Keyboard input]*)
 type KeyState (control:Control) =
     let mutable keysDown = Set.empty
-    do  control.KeyDown.Add (fun e -> keysDown <- keysDown.Add e.Key)
-    do  control.KeyUp.Add (fun e -> keysDown <- keysDown.Remove e.Key)    
+    let mutable keyUps = List.empty
+    let addKey key () = keyUps <- key :: keyUps
+    let readKeyUps key () =
+        let ofKey, otherKeys = 
+            keyUps |> List.partition ((=) key)
+        keyUps <- otherKeys
+        List.length ofKey
+    let sync = obj()
+    do  control.KeyDown.Add (fun e ->
+            keysDown <- keysDown.Add e.Key
+        )
+    do  control.KeyUp.Add (fun e -> 
+            keysDown <- keysDown.Remove e.Key
+            lock sync (e.Key |> addKey)
+        )        
     member this.IsKeyDown key = keysDown.Contains key
     member this.IsAnyKeyDwn () = keysDown.Count > 0
+    member this.ReadKeyPresses key =
+        let keyUps = lock sync (key |> readKeyUps)
+        keyUps + (if keysDown.Contains key then 1 else 0)
+(*[/omit]*)
 
 let tetrads =
     [
@@ -199,7 +146,8 @@ type Well() =
 type GameControl() as this =
     inherit UserControl(
             Width = float wellWidth*blockSize, 
-            Height = float wellHeight*blockSize)
+            Height = float wellHeight*blockSize,
+            IsTabStop = true)
 
     let keys = KeyState(this)    
     let well = Well()           
@@ -221,15 +169,6 @@ type GameControl() as this =
             )                        
         { tetrad with Blocks=blocks }
 
-    let readKeys tetrad =   
-        let mutable dx = 0
-        if keys.IsKeyDown Key.Left then dx <- dx - 1
-        if keys.IsKeyDown Key.Right then dx <- dx + 1                                  
-        if keys.IsKeyDown Key.Up then
-            rotateTetrad tetrad, dx            
-        else
-            tetrad,dx 
-
     let dockTetrad (tetrad) (x,y) =
         tetrad.Blocks |> List.iter (fun block ->
             tetrad.Canvas.Children.Remove block.Rectangle |> ignore
@@ -239,14 +178,15 @@ type GameControl() as this =
         )
 
     let playTetrad tetrad (x,y) = async {
-        let mouse = new MouseTracking((!tetrad).Canvas)                    
         positionTetrad !tetrad (!x,!y)                                                 
         canvas.Children.Add (!tetrad).Canvas
-        while not (isTetradBlocked !tetrad (!x,!y)) do
-            do! Async.Sleep 300        
-            let newTetrad, dx = readKeys !tetrad
-            let dx', _ = mouse.TakeMotion()
-            let dx = dx + sign dx'
+        while not (isTetradBlocked !tetrad (!x,!y)) do            
+            do! Async.Sleep 300
+            let dx = 
+                keys.ReadKeyPresses Key.Right - keys.ReadKeyPresses Key.Left
+                |> sign                                              
+            let rotate = keys.ReadKeyPresses Key.Up > 0                              
+            let newTetrad = if rotate then rotateTetrad(!tetrad) else !tetrad            
             if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then
                 positionBlocks newTetrad.Blocks
                 tetrad := newTetrad
@@ -255,8 +195,7 @@ type GameControl() as this =
             if isTetradBlocked !tetrad (!x,!y+1) then
                 dockTetrad (!tetrad) (!x,!y)
                 canvas.Children.Remove (!tetrad).Canvas |> ignore
-            positionTetrad !tetrad (!x,!y)   
-        (mouse :> IDisposable).Dispose()        
+            positionTetrad !tetrad (!x,!y)                   
         }
 
     let rand = Random()  
@@ -297,8 +236,10 @@ type GameControl() as this =
 open Microsoft.TryFSharp
 App.Dispatch (fun() -> 
     App.Console.ClearCanvas()
-    WellControl() |> App.Console.Canvas.Children.Add
-    App.Console.CanvasPosition <- CanvasPosition.Right
+    let canvas = App.Console.Canvas
+    let control = GameControl()    
+    control |> canvas.Children.Add
+    control.Focus() |> ignore
 )
 #endif
 (*[/omit]*)
