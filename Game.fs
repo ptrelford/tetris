@@ -169,6 +169,17 @@ type GameControl() as this =
             )                        
         { tetrad with Blocks=blocks }
 
+    let controlTetrad tetrad (x,y) =
+        let dx = 
+            keys.ReadKeyPresses Key.Right - keys.ReadKeyPresses Key.Left
+            |> sign                                              
+        let rotate = keys.ReadKeyPresses Key.Up > 0                              
+        let newTetrad = if rotate then rotateTetrad(!tetrad) else !tetrad            
+        if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then
+            positionBlocks newTetrad.Blocks
+            tetrad := newTetrad
+            x := !x + dx
+
     let dockTetrad (tetrad) (x,y) =
         tetrad.Blocks |> List.iter (fun block ->
             tetrad.Canvas.Children.Remove block.Rectangle |> ignore
@@ -180,17 +191,11 @@ type GameControl() as this =
     let playTetrad tetrad (x,y) = async {
         positionTetrad !tetrad (!x,!y)                                                 
         canvas.Children.Add (!tetrad).Canvas
+        let speed = ref 300       
         while not (isTetradBlocked !tetrad (!x,!y)) do            
-            do! Async.Sleep 300
-            let dx = 
-                keys.ReadKeyPresses Key.Right - keys.ReadKeyPresses Key.Left
-                |> sign                                              
-            let rotate = keys.ReadKeyPresses Key.Up > 0                              
-            let newTetrad = if rotate then rotateTetrad(!tetrad) else !tetrad            
-            if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then
-                positionBlocks newTetrad.Blocks
-                tetrad := newTetrad
-                x := !x + dx
+            do! Async.Sleep !speed
+            if keys.ReadKeyPresses Key.Down > 0 then speed := 30                
+            controlTetrad tetrad (x,y)
             incr y
             if isTetradBlocked !tetrad (!x,!y+1) then
                 dockTetrad (!tetrad) (!x,!y)
@@ -209,26 +214,31 @@ type GameControl() as this =
             return! inGameLoop ()   
         }
 
-    let createMessage s =
-        let t = TextBlock(Text=s)
-        t.HorizontalAlignment <- HorizontalAlignment.Center
-        t.VerticalAlignment <- VerticalAlignment.Center
-        t.Foreground <- SolidColorBrush Colors.White
-        t
-        
-    let rec gameLoop () =  async {
-        let start = createMessage "Click To Start"
+    let message s =
+        TextBlock(
+            Text=s,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = SolidColorBrush Colors.White)        
+
+    let prompt text action = async {
+        let start = message text
         layout.Children.Add start
-        do! this.MouseLeftButtonDown |> Async.AwaitEvent |> Async.Ignore
+        do! action()
         layout.Children.Remove start |> ignore
-        do! inGameLoop () 
-        let gameOver = createMessage "Game Over"
-        layout.Children.Add gameOver
-        do! Async.Sleep 5000
-        layout.Children.Remove gameOver |> ignore
+        }
+        
+    let awaitClick () = this.MouseLeftButtonDown |> Async.AwaitEvent |> Async.Ignore
+    let pause () =  Async.Sleep 5000
+
+    let rec gameLoop () =  async {
+        do! prompt "Click To Start" awaitClick                                    
+        do! inGameLoop ()         
+        do! prompt "Game Over" pause        
         well.Clear()
         return! gameLoop ()
         } 
+    
     do  gameLoop() |> Async.StartImmediate
 
 (*[omit:Run script on TryFSharp.org]*)
