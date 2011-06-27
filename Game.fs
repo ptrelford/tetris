@@ -32,6 +32,9 @@ type KeyState (control:Control) =
         )        
     member this.IsKeyDown key = keysDown.Contains key
     member this.IsAnyKeyDwn () = keysDown.Count > 0
+    member this.ReadKeyPressed key =
+        let keyUps = lock sync (key |> readKeyUps)
+        keyUps > 0
     member this.ReadKeyPresses key =
         let keyUps = lock sync (key |> readKeyUps)
         keyUps + (if keysDown.Contains key then 1 else 0)
@@ -173,7 +176,7 @@ type GameControl() as this =
         let dx = 
             keys.ReadKeyPresses Key.Right - keys.ReadKeyPresses Key.Left
             |> sign                                              
-        let rotate = keys.ReadKeyPresses Key.Up > 0                              
+        let rotate = keys.ReadKeyPressed Key.Up                              
         let newTetrad = if rotate then rotateTetrad(!tetrad) else !tetrad            
         if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then
             positionBlocks newTetrad.Blocks
@@ -194,7 +197,7 @@ type GameControl() as this =
         let speed = ref 300       
         while not (isTetradBlocked !tetrad (!x,!y)) do            
             do! Async.Sleep !speed
-            if keys.ReadKeyPresses Key.Down > 0 then speed := 30                
+            if keys.ReadKeyPressed Key.Down then speed := 30                
             controlTetrad tetrad (x,y)
             incr y
             if isTetradBlocked !tetrad (!x,!y+1) then
