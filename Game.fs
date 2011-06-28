@@ -113,7 +113,7 @@ type Well() =
         elif y < 0 || y >= wellHeight then true
         else
             matrix.[x,y] |> Option.exists (fun x -> true)
-    let checkLines () =
+    let clearLines () =
         let lineBlockCounts =
             [0..wellHeight-1] |> List.map (fun y ->
                 [0..wellWidth-1] 
@@ -135,14 +135,17 @@ type Well() =
                         matrix.[x,i+1] <- Some block
                         matrix.[x,i] <- None
                     )
-        lineBlockCounts |> List.iter (fun (count,y) -> 
-            if count = wellWidth then
-                clearLine y
-                fallDownTo y             
+        let cleared =
+            lineBlockCounts 
+            |> List.filter (fun (count,_) -> count = wellWidth)
+        cleared |> List.iter (fun (_,y) ->
+            clearLine y
+            fallDownTo y             
         )
+        cleared |> List.length
     member well.IsBlocked = isBlocked
     member well.AddBlock (x,y) (block:UIElement) = addBlock (x,y) block         
-    member well.CheckLines () = checkLines ()
+    member well.ClearLines () = clearLines ()
     member well.Clear () = clear ()
     member well.Control = canvas
 
@@ -158,6 +161,8 @@ type GameControl() as this =
     do  canvas.Children.Add(well.Control)
     let layout = Grid()
     do  layout.Children.Add canvas
+    let scoreBlock = TextBlock(Foreground = SolidColorBrush Colors.White)
+    do  layout.Children.Add scoreBlock
     do  this.Content <- layout
 
     let isTetradBlocked (tetrad) (x,y) =
@@ -205,16 +210,18 @@ type GameControl() as this =
                 canvas.Children.Remove (!tetrad).Canvas |> ignore
             positionTetrad !tetrad (!x,!y)                   
         }
-
+ 
     let rand = Random()  
-    let rec inGameLoop () = async {  
+
+    let rec inGameLoop score = async {               
         let index = rand.Next tetrads.Length 
         let tetrad = ref (createTetrad tetrads.[index])
         let x, y = ref (wellWidth/2 - 2), ref 0      
         if not (isTetradBlocked !tetrad (!x,!y+1)) then
+            scoreBlock.Text <- sprintf "SCORE %i" score
             do! playTetrad tetrad (x,y) 
-            well.CheckLines()
-            return! inGameLoop ()   
+            let score = score + 100 * well.ClearLines()
+            return! inGameLoop score  
         }
 
     let message s =
@@ -222,7 +229,8 @@ type GameControl() as this =
             Text=s,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            Foreground = SolidColorBrush Colors.White)        
+            Foreground = SolidColorBrush Colors.White,
+            FontSize = 16.0)        
 
     let prompt text action = async {
         let start = message text
@@ -231,13 +239,15 @@ type GameControl() as this =
         layout.Children.Remove start |> ignore
         }
         
-    let awaitClick () = this.MouseLeftButtonDown |> Async.AwaitEvent |> Async.Ignore
-    let pause () =  Async.Sleep 5000
+    let awaitingClick () = 
+        this.MouseLeftButtonDown |> Async.AwaitEvent |> Async.Ignore
+    let paused () =  
+        Async.Sleep 5000
 
-    let rec gameLoop () =  async {
-        do! prompt "Click To Start" awaitClick                                    
-        do! inGameLoop ()         
-        do! prompt "Game Over" pause        
+    let rec gameLoop () =  async {        
+        do! prompt "Click To Start" awaitingClick                                            
+        do! inGameLoop 0                   
+        do! prompt "Game Over" paused        
         well.Clear()
         return! gameLoop ()
         } 
@@ -252,6 +262,7 @@ App.Dispatch (fun() ->
     let canvas = App.Console.Canvas
     let control = GameControl()    
     control |> canvas.Children.Add
+    App.Console.CanvasPosition <- CanvasPosition.Right
     control.Focus() |> ignore
 )
 #endif
