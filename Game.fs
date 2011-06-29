@@ -155,14 +155,19 @@ type GameControl() as this =
             Height = float wellHeight*blockSize,
             IsTabStop = true)
 
+    let settings = 
+        System.IO.IsolatedStorage.IsolatedStorageSettings.ApplicationSettings
     let keys = KeyState(this)    
     let well = Well()           
     let canvas = Canvas(Background=SolidColorBrush Colors.Black)
     do  canvas.Children.Add(well.Control)
     let layout = Grid()
     do  layout.Children.Add canvas
-    let scoreBlock = TextBlock(Foreground = SolidColorBrush Colors.White)
+    let whiteBrush = SolidColorBrush Colors.White
+    let scoreBlock = TextBlock(Foreground=whiteBrush)
+    let highBlock = TextBlock(Foreground=whiteBrush, TextAlignment=TextAlignment.Right)
     do  layout.Children.Add scoreBlock
+    do  layout.Children.Add highBlock
     do  this.Content <- layout
 
     let isTetradBlocked (tetrad) (x,y) =
@@ -211,18 +216,21 @@ type GameControl() as this =
             positionTetrad !tetrad (!x,!y)                   
         }
  
-    let rand = Random()  
+    let rand = Random()
+    
+    let showScore score=   
+        scoreBlock.Text <- sprintf "SCORE %i" score
 
     let rec inGameLoop score = async {               
         let index = rand.Next tetrads.Length 
         let tetrad = ref (createTetrad tetrads.[index])
         let x, y = ref (wellWidth/2 - 2), ref 0      
-        if not (isTetradBlocked !tetrad (!x,!y+1)) then
-            scoreBlock.Text <- sprintf "SCORE %i" score
+        if not (isTetradBlocked !tetrad (!x,!y+1)) then            
             do! playTetrad tetrad (x,y) 
-            let score = score + 100 * well.ClearLines()
+            score := !score + 100 * well.ClearLines()
+            showScore !score
             return! inGameLoop score  
-        }
+        }        
 
     let message s =
         TextBlock(
@@ -244,15 +252,33 @@ type GameControl() as this =
     let paused () =  
         Async.Sleep 5000
 
-    let rec gameLoop () =  async {        
-        do! prompt "Click To Start" awaitingClick                                            
-        do! inGameLoop 0                   
-        do! prompt "Game Over" paused        
+    let readHighScore () =
+        if settings.Contains "HighScore" 
+        then settings.["HighScore"] :?> int 
+        else 0
+
+    let updateHighScore score highScore =
+        if score > highScore then                
+            settings.["HighScore"] <- score   
+            score
+        else highScore
+
+    let showHighScore highScore =
+        highBlock.Text <- sprintf "HIGH %i" highScore                
+
+    let rec gameLoop highScore =  async {
+        let score = ref 0 
+        showScore !score
+        showHighScore highScore
+        do! prompt "Click To Start" awaitingClick                                                 
+        do! inGameLoop score
+        do! prompt "Game Over" paused
+        let highScore = updateHighScore !score highScore            
         well.Clear()
-        return! gameLoop ()
+        return! gameLoop highScore
         } 
-    
-    do  gameLoop() |> Async.StartImmediate
+      
+    do  readHighScore() |> gameLoop |> Async.StartImmediate
 
 (*[omit:Run script on TryFSharp.org]*)
 #if INTERACTIVE
