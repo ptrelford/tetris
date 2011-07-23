@@ -52,7 +52,6 @@ let tetrads =
     ]
 
 type Block = { X:int; Y:int; Rectangle:Rectangle }
-type Tetrad = { Blocks:Block list; Canvas:Canvas }
 
 let setPosition (block:#UIElement) (x,y) =    
     block.SetValue(Canvas.LeftProperty, x)
@@ -60,38 +59,44 @@ let setPosition (block:#UIElement) (x,y) =
 
 let blockSize = 16.0
 let toPosition (x,y) = float x * blockSize, float y * blockSize
-
 let positionBlock block =
     (block.X, block.Y) |> toPosition |> setPosition block.Rectangle
-
 let positionBlocks blocks = 
     blocks |> List.iter positionBlock
 
-let positionTetrad tetrad (x,y) =
-    (x,y) |> toPosition |> setPosition tetrad.Canvas
-    
-let createTetrad (coordinates,stroke,fill) =    
-    let createRectangle () =
-        Rectangle(
-            Width=blockSize,Height=blockSize,
-            Fill=SolidColorBrush fill,
-            Stroke=SolidColorBrush stroke,
-            StrokeThickness=2.0)    
-    let createBlocks coordinates =
-        coordinates |> List.map (fun (x,y) ->
-            let rectangle = createRectangle ()        
-            { X=x; Y=y; Rectangle=rectangle }
-        )
-    let composeBlocks blocks =
-        let canvas = new Canvas()
-        blocks |> List.iter (fun block ->            
-            canvas.Children.Add block.Rectangle
-        )
-        canvas
-    let blocks = createBlocks coordinates
-    positionBlocks blocks
-    let canvas = composeBlocks blocks
-    { Blocks=blocks; Canvas=canvas }
+type Tetrad = { Blocks:Block list; Canvas:Canvas }
+    with
+    member tetrad.SetPosition (x,y) =
+        (x,y) |> toPosition |> setPosition tetrad.Canvas
+    static member Create (coordinates,stroke,fill) =        
+        let createRectangle () =
+            Rectangle(
+                Width=blockSize,Height=blockSize,
+                Fill=SolidColorBrush fill,
+                Stroke=SolidColorBrush stroke,
+                StrokeThickness=2.0)    
+        let createBlocks coordinates =
+            coordinates |> List.map (fun (x,y) ->
+                let rectangle = createRectangle ()        
+                { X=x; Y=y; Rectangle=rectangle }
+            )
+        let composeBlocks blocks =
+            let canvas = new Canvas()
+            blocks |> List.iter (fun block ->            
+                canvas.Children.Add block.Rectangle
+            )
+            canvas
+        let blocks = createBlocks coordinates
+        positionBlocks blocks
+        let canvas = composeBlocks blocks
+        { Blocks=blocks; Canvas=canvas }
+    static member Rotated tetrad =
+        let blocks = 
+            tetrad.Blocks |> List.map (fun block ->
+                {block with X = block.Y; Y = -block.X}
+            )                        
+        positionBlocks blocks
+        { tetrad with Blocks=blocks }
 
 let wellWidth, wellHeight = 10, 20
 
@@ -193,21 +198,15 @@ type GameControl() as control =
             (block.X + x, block.Y + y) |> well.IsBlocked
         )
 
-    let rotateTetrad tetrad =
-        let blocks = 
-            tetrad.Blocks |> List.map (fun block ->
-                {block with X = block.Y; Y = -block.X}
-            )                        
-        { tetrad with Blocks=blocks }
-
-    let controlTetrad tetrad (x,y) =
+    let controlTetrad (tetrad:Tetrad ref) (x,y) =
         let dx = 
             keys.ReadKeyPresses Key.Right - keys.ReadKeyPresses Key.Left
             |> sign                                              
         let rotate = keys.ReadKeyPressed Key.Up                              
-        let newTetrad = if rotate then play rotateSound; rotateTetrad(!tetrad) else !tetrad            
-        if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then
-            positionBlocks newTetrad.Blocks
+        let newTetrad = 
+            if rotate then play rotateSound; Tetrad.Rotated !tetrad
+            else !tetrad            
+        if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then                        
             tetrad := newTetrad
             x := !x + dx
 
@@ -219,8 +218,8 @@ type GameControl() as control =
             block.Rectangle |> well.AddBlock (x',y') 
         )
 
-    let playTetrad tetrad (x,y) = async {        
-        positionTetrad !tetrad (!x,!y)                                                 
+    let playTetrad (tetrad:Tetrad ref) (x,y) = async {        
+        (!tetrad).SetPosition (!x,!y)                                                 
         canvas.Children.Add (!tetrad).Canvas
         let speed = ref 300       
         while not (isTetradBlocked !tetrad (!x,!y)) do            
@@ -232,7 +231,7 @@ type GameControl() as control =
                 play landSound
                 dockTetrad (!tetrad) (!x,!y)
                 canvas.Children.Remove (!tetrad).Canvas |> ignore
-            positionTetrad !tetrad (!x,!y)                   
+            (!tetrad).SetPosition(!x,!y)                   
         }
  
     let rand = Random()
@@ -242,7 +241,7 @@ type GameControl() as control =
 
     let rec inGameLoop score = async {               
         let index = rand.Next tetrads.Length 
-        let tetrad = ref (createTetrad tetrads.[index])
+        let tetrad = ref (Tetrad.Create tetrads.[index])
         let x, y = ref (wellWidth/2 - 2), ref 0      
         if not (isTetradBlocked !tetrad (!x,!y+1)) then            
             do! playTetrad tetrad (x,y) 
