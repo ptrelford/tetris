@@ -52,24 +52,6 @@
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath32)\..\Microsoft F#\v4.0\Microsoft.FSharp.Targets" />
   <Import Project="$(MSBuildExtensionsPath)\Microsoft\Silverlight\$(SilverlightVersion)\Microsoft.Silverlight.Common.targets" />
-  <ItemGroup>
-    <Compile Include="Game.fs" />
-    <Compile Include="App.fs" />
-    <Content Include="AppManifest.xml" />
-    <Content Include="OutOfBrowserSettings.xml" />
-  </ItemGroup>
-  <ItemGroup>
-    <Reference Include="FSharp.Core">
-      <HintPath>$(ProgramFiles)\Microsoft F#\Silverlight\Libraries\Client\$(SilverlightVersion)\FSharp.Core.dll</HintPath>
-    </Reference>
-    <Reference Include="mscorlib" />
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Net" />
-    <Reference Include="System.Windows" />
-    <Reference Include="System.Windows.Browser" />
-    <Reference Include="System.Xml" />
-  </ItemGroup>
   <ProjectExtensions>
     <VisualStudio>
       <FlavorProperties Guid="{a1591282-1198-4647-a2b1-27e5ff5f6f3b}">
@@ -99,4 +81,30 @@
       </FlavorProperties>
     </VisualStudio>
   </ProjectExtensions>
+  <ItemGroup>
+    <Compile Include="Game.fs" />
+    <Compile Include="App.fs" />
+    <Content Include="AppManifest.xml" />
+    <Content Include="OutOfBrowserSettings.xml" />
+    <Resource Include="GameControl.xaml" />
+    <Content Include="EasternBlockParty.mp3" />
+    <Content Include="GameOverDurge1.mp3" />
+    <Content Include="MenuFx1.mp3" />
+    <Content Include="PieceDropped1_0.25sec.mp3" />
+    <Content Include="PieceLand1.mp3" />
+    <Content Include="RotateWhoosh1.mp3" />
+    <Content Include="BlockLineClearedShort.mp3" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="FSharp.Core">
+      <HintPath>$(ProgramFiles)\Microsoft F#\Silverlight\Libraries\Client\$(SilverlightVersion)\FSharp.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="mscorlib" />
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Net" />
+    <Reference Include="System.Windows" />
+    <Reference Include="System.Windows.Browser" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
 </Project>

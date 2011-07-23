@@ -149,26 +149,44 @@ type Well() =
     member well.Clear () = clear ()
     member well.Control = canvas
 
-type GameControl() as this =
+type GameControl() as control =
     inherit UserControl(
             Width = float wellWidth*blockSize, 
             Height = float wellHeight*blockSize,
             IsTabStop = true)
-
+    
+    let uri = Uri("/Tetris;component/GameControl.xaml", UriKind.Relative)
+    do  Application.LoadComponent(control, uri)
+    let play (sound:MediaElement) =
+        sound.Stop()
+        sound.Play()
     let settings = 
         System.IO.IsolatedStorage.IsolatedStorageSettings.ApplicationSettings
-    let keys = KeyState(this)    
+    let keys = KeyState(control)    
     let well = Well()           
     let canvas = Canvas(Background=SolidColorBrush Colors.Black)
     do  canvas.Children.Add(well.Control)
     let layout = Grid()
     do  layout.Children.Add canvas
+    
+    let registerSound path =
+        let sound = MediaElement(AutoPlay=false, Source=Uri(path,UriKind.Relative))    
+        layout.Children.Add sound
+        sound
+    let music = registerSound "/EasternBlockParty.mp3"
+    let gameOverSound = registerSound "/GameOverDurge1.mp3"
+    let clickSound = registerSound "/MenuFx1.mp3"
+    let rotateSound = registerSound "/RotateWhoosh1.mp3"
+    let landSound = registerSound "/PieceLand1.mp3"
+    let dropSound = registerSound "/PieceDropped1_0.25sec.mp3"
+    let clearSound = registerSound "/BlockLineClearedShort.mp3"
+
     let whiteBrush = SolidColorBrush Colors.White
     let scoreBlock = TextBlock(Foreground=whiteBrush)
     let highBlock = TextBlock(Foreground=whiteBrush, TextAlignment=TextAlignment.Right)
     do  layout.Children.Add scoreBlock
     do  layout.Children.Add highBlock
-    do  this.Content <- layout
+    do  control.Content <- layout
 
     let isTetradBlocked (tetrad) (x,y) =
         tetrad.Blocks |> List.exists (fun block ->            
@@ -187,7 +205,7 @@ type GameControl() as this =
             keys.ReadKeyPresses Key.Right - keys.ReadKeyPresses Key.Left
             |> sign                                              
         let rotate = keys.ReadKeyPressed Key.Up                              
-        let newTetrad = if rotate then rotateTetrad(!tetrad) else !tetrad            
+        let newTetrad = if rotate then play rotateSound; rotateTetrad(!tetrad) else !tetrad            
         if not (isTetradBlocked newTetrad (!x+dx,!y+1)) then
             positionBlocks newTetrad.Blocks
             tetrad := newTetrad
@@ -201,16 +219,17 @@ type GameControl() as this =
             block.Rectangle |> well.AddBlock (x',y') 
         )
 
-    let playTetrad tetrad (x,y) = async {
+    let playTetrad tetrad (x,y) = async {        
         positionTetrad !tetrad (!x,!y)                                                 
         canvas.Children.Add (!tetrad).Canvas
         let speed = ref 300       
         while not (isTetradBlocked !tetrad (!x,!y)) do            
             do! Async.Sleep !speed
-            if keys.ReadKeyPressed Key.Down then speed := 30                
+            if keys.ReadKeyPressed Key.Down then play dropSound; speed := 30                
             controlTetrad tetrad (x,y)
             incr y
             if isTetradBlocked !tetrad (!x,!y+1) then
+                play landSound
                 dockTetrad (!tetrad) (!x,!y)
                 canvas.Children.Remove (!tetrad).Canvas |> ignore
             positionTetrad !tetrad (!x,!y)                   
@@ -227,8 +246,11 @@ type GameControl() as this =
         let x, y = ref (wellWidth/2 - 2), ref 0      
         if not (isTetradBlocked !tetrad (!x,!y+1)) then            
             do! playTetrad tetrad (x,y) 
-            score := !score + 100 * well.ClearLines()
-            showScore !score
+            let lines = well.ClearLines()
+            if lines > 0 then
+                play clearSound
+                score := !score + 100 * lines             
+                showScore !score
             return! inGameLoop score  
         }        
 
@@ -248,7 +270,7 @@ type GameControl() as this =
         }
         
     let awaitingClick () = 
-        this.MouseLeftButtonDown |> Async.AwaitEvent |> Async.Ignore
+        control.MouseLeftButtonDown |> Async.AwaitEvent |> Async.Ignore
     let paused () =  
         Async.Sleep 5000
 
@@ -270,8 +292,12 @@ type GameControl() as this =
         let score = ref 0 
         showScore !score
         showHighScore highScore
-        do! prompt "Click To Start" awaitingClick                                                 
-        do! inGameLoop score
+        do! prompt "Click To Start" awaitingClick                                                         
+        music.Play()        
+        do! inGameLoop score       
+        music.Stop() 
+        gameOverSound.Stop()
+        gameOverSound.Play()
         do! prompt "Game Over" paused
         let highScore = updateHighScore !score highScore            
         well.Clear()
