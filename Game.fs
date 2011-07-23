@@ -42,16 +42,16 @@ type KeyState (control:Control) =
 
 let tetrads =
     [
-        [0,0;0,1;0,2;0,3],Colors.Red, Colors.Yellow
-        [0,0;1,0;0,1;1,1],Colors.Blue, Colors.Cyan
-        [0,0;1,0;2,0;1,1],Colors.Purple, Colors.Magenta
-        [0,0;1,0;2,0;0,1],Colors.Yellow, Colors.Orange
-        [0,0;1,0;2,0;2,1],Colors.White, Colors.LightGray
-        [0,0;1,0;1,1;2,1],Colors.Green, Colors.Gray
-        [0,1;1,1;1,0;2,0],Colors.Brown, Colors.DarkGray
+        [0,0;0,1;0,2;0,3],(2,0),Colors.Red, Colors.Yellow
+        [0,0;1,0;0,1;1,1],(1,1),Colors.Blue, Colors.Cyan
+        [0,1;1,1;2,1;1,0],(1,1),Colors.Purple, Colors.Magenta
+        [0,0;1,0;2,0;0,1],(1,1),Colors.Yellow, Colors.Orange
+        [0,0;1,0;2,0;2,1],(1,1),Colors.White, Colors.LightGray
+        [0,0;1,0;1,1;2,1],(1,1),Colors.Green, Colors.Gray
+        [0,1;1,1;1,0;2,0],(1,1),Colors.Brown, Colors.DarkGray
     ]
 
-type Block = { X:int; Y:int; Rectangle:Rectangle }
+type Block = { X:int; Y:int; Shape:Shape }
 
 let setPosition (block:#UIElement) (x,y) =    
     block.SetValue(Canvas.LeftProperty, x)
@@ -60,43 +60,105 @@ let setPosition (block:#UIElement) (x,y) =
 let blockSize = 16.0
 let toPosition (x,y) = float x * blockSize, float y * blockSize
 let positionBlock block =
-    (block.X, block.Y) |> toPosition |> setPosition block.Rectangle
+    (block.X, block.Y) |> toPosition |> setPosition block.Shape
 let positionBlocks blocks = 
     blocks |> List.iter positionBlock
 
-type Tetrad = { Blocks:Block list; Canvas:Canvas }
+let toPolylines (coordinates:(int * int) list) =
+    let toLines (x,y) =
+        [(x,y),(x+1,y)
+         (x+1,y),(x+1,y+1)
+         (x+1,y+1),(x,y+1)
+         (x,y+1),(x,y)]
+    let lines =
+        coordinates 
+        |> List.collect toLines
+    let flip (a,b) = (b,a)
+    let uniqueLines =
+        lines |> List.fold (fun acc line ->
+            if Set.contains line acc then
+                Set.remove line acc
+            elif Set.contains (flip line) acc then
+                Set.remove (flip line) acc
+            else 
+                Set.add line acc
+        ) Set.empty
+    let rec toPolygon source dest =
+        if List.length source = 0
+        then dest
+        else
+            let (((_,_),(x,y)) as first) = List.head dest
+            let item, toLine = 
+                source
+                |> List.pick (fun (((x1,y1),(x2,y2)) as item) ->                            
+                    if x = x1 && y = y1 then Some (item,item)
+                    elif x = x2 && y = y2 then Some(item,flip item)
+                    else None
+                )
+            let source = source |> List.filter ((=) item >> not)
+            toPolygon source (toLine::dest)
+    let polygon =
+        let lines = uniqueLines |> Set.toList                                       
+        toPolygon lines.Tail [lines.Head]
+        |> List.rev
+    polygon
+
+let toPolygon (coordinates,stroke,fill) = 
+    let shape = 
+        Polygon(
+            Fill=fill,
+            Stroke=stroke,
+            StrokeThickness=2.0)
+    coordinates      
+    |> toPolylines        
+    |> List.iter (fun ((x1,y1),(x2,y2)) ->
+        let x,y = (x2,y2) |> toPosition
+        shape.Points.Add(Point(x,y))
+    )          
+    shape
+
+type Tetrad = { Blocks:Block list; Canvas:Canvas; Polygon:Polygon; Angle:double }
     with
     member tetrad.SetPosition (x,y) =
         (x,y) |> toPosition |> setPosition tetrad.Canvas
-    static member Create (coordinates,stroke,fill) =        
+    static member Create (coordinates,_,stroke,fill) =        
+        let coordinates = coordinates |> List.map (fun (x,y) -> x-1, y-1)
+        let stroke = SolidColorBrush stroke
+        let fill = SolidColorBrush fill
         let createRectangle () =
             Rectangle(
                 Width=blockSize,Height=blockSize,
-                Fill=SolidColorBrush fill,
-                Stroke=SolidColorBrush stroke,
-                StrokeThickness=2.0)    
+                Fill=fill,
+                Stroke=stroke,
+                StrokeThickness=2.0)                
         let createBlocks coordinates =
             coordinates |> List.map (fun (x,y) ->
                 let rectangle = createRectangle ()        
-                { X=x; Y=y; Rectangle=rectangle }
+                { X=x; Y=y; Shape=rectangle }
             )
-        let composeBlocks blocks =
-            let canvas = new Canvas()
+        let canvas = new Canvas()
+        let composeBlocks blocks =            
             blocks |> List.iter (fun block ->            
-                canvas.Children.Add block.Rectangle
-            )
-            canvas
+                canvas.Children.Add block.Shape
+            )                        
         let blocks = createBlocks coordinates
-        positionBlocks blocks
-        let canvas = composeBlocks blocks
-        { Blocks=blocks; Canvas=canvas }
-    static member Rotated tetrad =
+        positionBlocks blocks        
+        composeBlocks blocks
+        let polygon = toPolygon (coordinates,stroke,fill)
+        canvas.Children.Add polygon        
+        { Blocks=blocks; Canvas=canvas; Polygon=polygon; Angle=0.0 }
+    static member Rotated tetrad =        
         let blocks = 
             tetrad.Blocks |> List.map (fun block ->
                 {block with X = block.Y; Y = -block.X}
             )                        
-        positionBlocks blocks
-        { tetrad with Blocks=blocks }
+        let newPolygon =
+            let coords = blocks |> List.map (fun block -> block.X, block.Y)
+            toPolygon(coords,tetrad.Polygon.Stroke,tetrad.Polygon.Fill)
+        tetrad.Canvas.Children.Remove tetrad.Polygon |> ignore
+        tetrad.Canvas.Children.Add newPolygon
+        positionBlocks blocks       
+        { tetrad with Blocks=blocks; Polygon=newPolygon}
 
 let wellWidth, wellHeight = 10, 20
 
@@ -115,7 +177,8 @@ type Well() =
         )        
     let isBlocked (x,y) =
         if x < 0 || x >= wellWidth then true
-        elif y < 0 || y >= wellHeight then true
+        elif y < 0 then false
+        elif y >= wellHeight then true
         else
             matrix.[x,y] |> Option.exists (fun x -> true)
     let clearLines () =
@@ -212,10 +275,10 @@ type GameControl() as control =
 
     let dockTetrad (tetrad) (x,y) =
         tetrad.Blocks |> List.iter (fun block ->
-            tetrad.Canvas.Children.Remove block.Rectangle |> ignore
+            tetrad.Canvas.Children.Remove block.Shape |> ignore
             let x',y' = block.X + x, block.Y + y
-            setPosition block.Rectangle (toPosition (x', y'))                                    
-            block.Rectangle |> well.AddBlock (x',y') 
+            setPosition block.Shape (toPosition (x', y'))                                    
+            block.Shape |> well.AddBlock (x',y') 
         )
 
     let playTetrad (tetrad:Tetrad ref) (x,y) = async {        
@@ -242,7 +305,7 @@ type GameControl() as control =
     let rec inGameLoop score = async {               
         let index = rand.Next tetrads.Length 
         let tetrad = ref (Tetrad.Create tetrads.[index])
-        let x, y = ref (wellWidth/2 - 2), ref 0      
+        let x, y = ref (wellWidth/2 - 1), ref 0      
         if not (isTetradBlocked !tetrad (!x,!y+1)) then            
             do! playTetrad tetrad (x,y) 
             let lines = well.ClearLines()
